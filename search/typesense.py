@@ -207,7 +207,25 @@ class TypesenseEngine(SearchEngine):
         query_by = index_config["query_fields"]
         search_args = {"q": query_string, "query_by": query_by, **compiled_params}
         try:
-            results = self.typesense_index.documents.search(search_args)
+            # Typesense's standard search endpoint strictly requires GET.
+            # To bypass HTTP URL length limits with a POST request, we MUST
+            # use the multi_search endpoint and pass the parameters in the body.
+            payload = {
+                "searches": [
+                    {
+                        "collection": self.typesense_index.name,
+                        **search_args
+                    }
+                ]
+            }
+            # Send the POST request to the multi_search endpoint
+            multi_response = self.typesense_index.api_call.post(
+                "/multi_search",
+                payload
+            )
+            # The multi_search endpoint wraps results in a "results" array.
+            # We extract the first item to maintain compatibility with Open edX.
+            results = multi_response.get("results", [])[0]
         except RequestMalformed as err:
             if "Query string exceeds max allowed length" in str(err):
                 # To do large queries (with complex filters), we need to use the multi-search endpoint:
